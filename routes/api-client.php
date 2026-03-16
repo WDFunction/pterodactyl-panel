@@ -93,6 +93,13 @@ Route::group([
         Route::middleware([ResourceLimit::FilePull->middleware()])
             ->post('/pull', [Client\Servers\FileController::class, 'pull']);
         Route::get('/upload', Client\Servers\FileUploadController::class);
+
+        // S3 file transfer routes
+        Route::get('/s3-upload-url', [Client\Servers\FileController::class, 's3UploadUrl']);
+        Route::post('/s3-upload-complete', [Client\Servers\FileController::class, 's3UploadComplete']);
+        Route::get('/s3-download-url', [Client\Servers\FileController::class, 's3DownloadUrl']);
+        Route::get('/s3-download-status', [Client\Servers\FileController::class, 's3DownloadStatus']);
+        Route::get('/s3-enabled', [Client\Servers\FileController::class, 's3Enabled']);
     });
 
     Route::group(['prefix' => '/schedules'], function () {

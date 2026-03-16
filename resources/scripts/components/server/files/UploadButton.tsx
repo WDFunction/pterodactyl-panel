@@ -1,5 +1,6 @@
 import axios, { AxiosProgressEvent } from 'axios';
 import getFileUploadUrl from '@/api/server/files/getFileUploadUrl';
+import { getS3UploadUrl, notifyS3UploadComplete } from '@/api/server/files/s3Transfer';
 import tw from 'twin.macro';
 import { Button } from '@/components/elements/button/index';
 import React, { useEffect, useRef } from 'react';
@@ -8,6 +9,8 @@ import Fade from '@/components/elements/Fade';
 import useEventListener from '@/plugins/useEventListener';
 import { useFlashKey } from '@/plugins/useFlash';
 import useFileManagerSwr from '@/plugins/useFileManagerSwr';
+import useS3Enabled from '@/plugins/useS3Enabled';
+import useS3IconUrl from '@/plugins/useS3IconUrl';
 import { ServerContext } from '@/state/server';
 import { WithClassname } from '@/components/types';
 import Portal from '@/components/elements/Portal';
@@ -24,9 +27,12 @@ function isFileOrDirectory(event: DragEvent): boolean {
 
 export default ({ className }: WithClassname) => {
     const fileUploadInput = useRef<HTMLInputElement>(null);
+    const s3FileUploadInput = useRef<HTMLInputElement>(null);
 
     const visible = useSignal(false);
     const timeouts = useSignal<NodeJS.Timeout[]>([]);
+    const s3Enabled = useS3Enabled();
+    const s3IconUrl = useS3IconUrl();
 
     const { mutate } = useFileManagerSwr();
     const { addError, clearAndAddHttpError } = useFlashKey('files');
@@ -100,6 +106,47 @@ export default ({ className }: WithClassname) => {
             });
     };
 
+    const onS3FileSubmission = (files: FileList) => {
+        clearAndAddHttpError();
+        const list = Array.from(files);
+        if (list.some((file) => !file.type && (!file.size || file.size === 4096))) {
+            return addError('Folder uploads are not supported.', 'Error');
+        }
+
+        const uploads = list.map((file) => {
+            const controller = new AbortController();
+            pushFileUpload({
+                name: `[S3] ${file.name}`,
+                data: { abort: controller, loaded: 0, total: file.size },
+            });
+
+            return () =>
+                getS3UploadUrl(uuid, file.name, directory)
+                    .then(({ upload_url, transfer_id }) =>
+                        axios
+                            .put(upload_url, file, {
+                                signal: controller.signal,
+                                headers: { 'Content-Type': 'application/octet-stream' },
+                                onUploadProgress: (data) => onUploadProgress(data, `[S3] ${file.name}`),
+                            })
+                            .then(() => notifyS3UploadComplete(uuid, transfer_id))
+                            .then(() =>
+                                timeouts.value.push(setTimeout(() => removeFileUpload(`[S3] ${file.name}`), 500))
+                            )
+                    );
+        });
+
+        Promise.all(uploads.map((fn) => fn()))
+            .then(() => {
+                // TODO 优化
+                setTimeout(() => mutate(), 5000);
+            })
+            .catch((error) => {
+                clearFileUploads();
+                clearAndAddHttpError(error);
+            });
+    };
+
     return (
         <>
             <Portal>
@@ -149,6 +196,31 @@ export default ({ className }: WithClassname) => {
             <Button className={className} onClick={() => fileUploadInput.current && fileUploadInput.current.click()}>
                 Upload
             </Button>
+            {s3Enabled && (
+                <>
+                    <input
+                        type={'file'}
+                        ref={s3FileUploadInput}
+                        css={tw`hidden`}
+                        onChange={(e) => {
+                            if (!e.currentTarget.files) return;
+
+                            onS3FileSubmission(e.currentTarget.files);
+                            if (s3FileUploadInput.current) {
+                                s3FileUploadInput.current.files = null;
+                            }
+                        }}
+                        multiple
+                    />
+                    <Button
+                        className={className}
+                        onClick={() => s3FileUploadInput.current && s3FileUploadInput.current.click()}
+                    >
+                        {s3IconUrl && <img src={s3IconUrl} alt={'S3'} css={tw`w-5 h-5 mr-2`} />}
+                        极速上传
+                    </Button>
+                </>
+            )}
         </>
     );
 };

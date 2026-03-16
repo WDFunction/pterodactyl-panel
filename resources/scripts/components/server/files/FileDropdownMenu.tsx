@@ -20,7 +20,10 @@ import SpinnerOverlay from '@/components/elements/SpinnerOverlay';
 import copyFile from '@/api/server/files/copyFile';
 import Can from '@/components/elements/Can';
 import getFileDownloadUrl from '@/api/server/files/getFileDownloadUrl';
+import { requestS3Download, getS3DownloadStatus } from '@/api/server/files/s3Transfer';
 import useFlash from '@/plugins/useFlash';
+import useS3Enabled from '@/plugins/useS3Enabled';
+import useS3IconUrl from '@/plugins/useS3IconUrl';
 import tw from 'twin.macro';
 import { FileObject } from '@/api/server/files/loadDirectory';
 import useFileManagerSwr from '@/plugins/useFileManagerSwr';
@@ -59,6 +62,8 @@ const FileDropdownMenu = ({ file }: { file: FileObject }) => {
     const [showSpinner, setShowSpinner] = useState(false);
     const [modal, setModal] = useState<ModalType | null>(null);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const s3Enabled = useS3Enabled();
+    const s3IconUrl = useS3IconUrl();
 
     const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
     const { mutate } = useFileManagerSwr();
@@ -127,6 +132,52 @@ const FileDropdownMenu = ({ file }: { file: FileObject }) => {
             .then(() => setShowSpinner(false));
     };
 
+    const doS3Download = () => {
+        setShowSpinner(true);
+        clearFlashes('files');
+
+        requestS3Download(uuid, join(directory, file.name))
+            .then(({ transfer_id }) => {
+                const MAX_POLL_ATTEMPTS = 150;
+                let attempts = 0;
+
+                const poll = () => {
+                    attempts++;
+                    getS3DownloadStatus(uuid, transfer_id)
+                        .then((status) => {
+                            if (status.status === 'completed' && status.download_url) {
+                                setShowSpinner(false);
+                                // @ts-expect-error 
+                                window.location = status.download_url;
+                            } else if (status.status === 'failed') {
+                                setShowSpinner(false);
+                                clearAndAddHttpError({
+                                    key: 'files',
+                                    error: { message: status.error || 'S3 download failed' } as Error,
+                                });
+                            } else if (attempts >= MAX_POLL_ATTEMPTS) {
+                                setShowSpinner(false);
+                                clearAndAddHttpError({
+                                    key: 'files',
+                                    error: { message: 'S3 download timed out. Please try again.' } as Error,
+                                });
+                            } else {
+                                setTimeout(poll, 2000);
+                            }
+                        })
+                        .catch((error) => {
+                            setShowSpinner(false);
+                            clearAndAddHttpError({ key: 'files', error });
+                        });
+                };
+                poll();
+            })
+            .catch((error) => {
+                setShowSpinner(false);
+                clearAndAddHttpError({ key: 'files', error });
+            });
+    };
+
     return (
         <>
             <Dialog.Confirm
@@ -186,6 +237,12 @@ const FileDropdownMenu = ({ file }: { file: FileObject }) => {
                     </Can>
                 )}
                 {file.isFile && <Row onClick={doDownload} icon={faFileDownload} title={'Download'} />}
+                {file.isFile && s3Enabled && (
+                    <StyledRow onClick={doS3Download}>
+                        {s3IconUrl && <img src={s3IconUrl} alt={'S3'} css={tw`w-3 h-3`} />}
+                        <span css={tw`ml-2`}>360 高速下载</span>
+                    </StyledRow>
+                )}
                 <Can action={'file.delete'}>
                     <Row onClick={() => setShowConfirmation(true)} icon={faTrashAlt} title={'Delete'} $danger />
                 </Can>

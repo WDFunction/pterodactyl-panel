@@ -298,4 +298,58 @@ class DaemonFileRepository extends DaemonRepository
             throw new DaemonConnectionException($exception);
         }
     }
+
+    /**
+     * Instructs Wings to download a file from an S3 presigned URL and save it
+     * to the server filesystem.
+     *
+     * @throws DaemonConnectionException
+     */
+    public function pullFromS3(string $downloadUrl, string $directory, string $filename, string $transferId): ResponseInterface
+    {
+        Assert::isInstanceOf($this->server, Server::class);
+
+        try {
+            return $this->getHttpClient()->post(
+                sprintf('/api/servers/%s/files/pull-from-s3', $this->server->uuid),
+                [
+                    'json' => [
+                        'download_url' => $downloadUrl,
+                        'directory' => $directory,
+                        'filename' => $filename,
+                        'transfer_id' => $transferId,
+                    ],
+                    'timeout' => 300,
+                ]
+            );
+        } catch (TransferException $exception) {
+            throw new DaemonConnectionException($exception);
+        }
+    }
+
+    /**
+     * Instructs Wings to upload a server file to S3 using a presigned PUT URL.
+     *
+     * @throws DaemonConnectionException
+     */
+    public function pushToS3(string $filePath, string $uploadUrl, string $transferId): ResponseInterface
+    {
+        Assert::isInstanceOf($this->server, Server::class);
+
+        try {
+            return $this->getHttpClient()->post(
+                sprintf('/api/servers/%s/files/push-to-s3', $this->server->uuid),
+                [
+                    'json' => [
+                        'file_path' => $filePath,
+                        'upload_url' => $uploadUrl,
+                        'transfer_id' => $transferId,
+                    ],
+                    'timeout' => 300,
+                ]
+            );
+        } catch (TransferException $exception) {
+            throw new DaemonConnectionException($exception);
+        }
+    }
 }
