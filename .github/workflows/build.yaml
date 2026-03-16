@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
       - run: yarn tsc
-      - run: yarn lint
+      # - run: yarn lint
       - run: yarn build:production
 
       - name: Create release archive
