@@ -1,9 +1,8 @@
 name: Build
 
 on:
+  push:
   pull_request:
-    branches:
-      - "1.0-develop"
 
 jobs:
   ui:
@@ -14,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ 22 ]
+        node-version: [22]
     steps:
       - name: Code Checkout
         uses: actions/checkout@v4
@@ -30,3 +29,14 @@ jobs:
       - run: yarn tsc
       - run: yarn lint
       - run: yarn build:production
+
+      - name: Create release archive
+        run: |
+          rm -rf node_modules tests CONTRIBUTING.md flake.lock flake.nix phpunit.xml shell.nix
+          tar -czf panel.tar.gz * .editorconfig .env.example .eslintignore .eslintrc.js .gitignore .prettierrc.json
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: panel
+          path: panel.tar.gz
